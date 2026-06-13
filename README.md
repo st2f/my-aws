@@ -2,6 +2,27 @@
 
 Local-first AWS learning dashboard for discovering tagged resources and browsing S3 object previews.
 
+```txt
+┌─────────────┐
+│ React Web   │
+└──────┬──────┘
+       │ GraphQL
+       ▼
+┌─────────────┐
+│ NestJS API  │
+└──────┬──────┘
+       │ AWS SDK
+       ▼
+┌──────────────────────────┐
+│ AWS Resources            │
+│ - Resource Groups        │
+│ - S3                     │
+│ - IAM                    │
+│ - ECR                    │
+│ - SSM                    │
+└──────────────────────────┘
+```
+
 ## Setup
 
 ```bash
@@ -55,6 +76,64 @@ API: http://localhost:3000
 API health: http://localhost:3000/health
 Web: http://localhost:5173
 ```
+
+## GraphQL
+
+The API exposes GraphQL at `/graphql`, but the legacy GraphQL Playground UI is disabled explicitly. Use the React app, curl, or a GraphQL client so queries stay visible and intentional.
+
+Example:
+
+```bash
+curl http://localhost:3000/graphql \
+  -H 'content-type: application/json' \
+  -d '{"query":"{ accountInfo { accountId alias region } }"}'
+```
+
+### Schema generation (code-first)
+
+#### 1. [apps/api/src/app.module.ts](/apps/api/src/app.module.ts)
+
+This is where GraphQL is plugged into Nest:
+
+```ts
+GraphQLModule.forRoot(graphqlConfig);
+```
+
+It answers: “How does this app enable `/graphql`?”
+
+#### 2. [apps/api/src/graphql.config.ts](/apps/api/src/graphql.config.ts)
+
+This is the Apollo/Nest GraphQL configuration:
+
+```ts
+driver: ApolloDriver,
+autoSchemaFile: true,
+playground: false,
+```
+
+It answers: “Which GraphQL server adapter are we using, and how is the schema created?”
+
+#### 3. [apps/api/src/account/account.resolver.ts](/apps/api/src/account/account.resolver.ts)
+
+This is the simplest real GraphQL query:
+
+```ts
+@Query(() => AccountInfoType)
+accountInfo()
+```
+
+It answers: “How does a GraphQL query call backend code?”
+
+#### 4. [apps/api/src/api/graphql.types.ts](/apps/api/src/api/graphql.types.ts)
+
+This defines the GraphQL schema types using decorators:
+
+```ts
+@ObjectType('AccountInfo')
+@Field()
+```
+
+It answers: “What shape does GraphQL expose to clients?”
 
 ## Specs
 
