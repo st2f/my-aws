@@ -34,6 +34,18 @@ describe('Home route', () => {
     expect(screen.getByText('eu-north-1')).toBeInTheDocument();
   });
 
+  it('masks account id when screenshot privacy mode is enabled', async () => {
+    vi.stubEnv('VITE_MY_AWS_MASK_ACCOUNT_IDS', 'true');
+    vi.spyOn(client, 'graphqlRequest').mockResolvedValue({
+      accountInfo: { accountId: '123456789012', alias: null, region: 'eu-north-1' },
+    });
+
+    render(<HomeRoute />);
+
+    expect(await screen.findAllByText('*****')).toHaveLength(2);
+    expect(screen.queryByText('123456789012')).not.toBeInTheDocument();
+  });
+
   it('renders a readable error state', async () => {
     vi.spyOn(client, 'graphqlRequest').mockRejectedValue(new Error('No credentials'));
 

@@ -79,6 +79,23 @@ describe('TaggedResourcesRoute', () => {
     expect(screen.getByText('Environment=lab')).toBeInTheDocument();
   });
 
+  it('masks account ids in rendered resource text when screenshot privacy mode is enabled', async () => {
+    const request = mockTaggedResources();
+    vi.stubEnv('VITE_MY_AWS_MASK_ACCOUNT_IDS', 'true');
+
+    renderTaggedResourcesRoute();
+
+    expect(await screen.findByRole('heading', { name: 'ci-practice-reports-*****' })).toBeInTheDocument();
+    expect(screen.getByText('arn:aws:ecr:eu-north-1:*****:repository/ecr-repo-practice')).toBeInTheDocument();
+    expect(screen.getByText('*****')).toBeInTheDocument();
+    expect(screen.queryByText('535337619181')).not.toBeInTheDocument();
+    expect(request).toHaveBeenCalledWith(
+      expect.stringContaining('resourcesByTag'),
+      { key: 'Project', value: 'ci-practice' },
+      expect.any(Object),
+    );
+  });
+
   it('renders loading state', () => {
     vi.spyOn(client, 'graphqlRequest').mockImplementation(() => new Promise(() => undefined));
 

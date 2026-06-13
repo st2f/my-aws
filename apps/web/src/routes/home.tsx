@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { graphqlRequest } from '../graphql/client';
 import { ErrorState, LoadingState } from '../components/shared-states';
+import { maskAwsAccountIds } from '../privacy/account-id-mask';
 
 type AccountInfo = {
   accountId: string;
@@ -97,7 +98,7 @@ function AccountDetails({ state }: { state: AccountState }) {
     <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-3">
       <div>
         <dt className="font-medium text-zinc-500">Account</dt>
-        <dd className="mt-1 font-mono text-zinc-950">{state.account.accountId}</dd>
+        <dd className="mt-1 font-mono text-zinc-950">{maskAwsAccountIds(state.account.accountId)}</dd>
       </div>
       <div>
         <dt className="font-medium text-zinc-500">Alias</dt>
@@ -127,7 +128,7 @@ function StatusIndicator({ status }: { status: AccountState['status'] }) {
 
 function accountTitle(state: AccountState) {
   if (state.status === 'connected') {
-    return state.account.alias ?? state.account.accountId;
+    return state.account.alias ?? maskAwsAccountIds(state.account.accountId);
   }
 
   if (state.status === 'error') {

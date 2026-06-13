@@ -2,7 +2,11 @@
 
 Local-first AWS learning dashboard for discovering tagged resources and browsing S3 object previews.
 
-<img width="800" alt="UI Tagged Ressources" src="https://github.com/user-attachments/assets/f52d5204-a272-4909-9b95-3f4956555cb6" />
+<img width="800" alt="UI Account & List of tags" src="https://github.com/user-attachments/assets/52906afc-0ac8-4507-a44c-efd796757d24" />
+
+---
+
+<img width="800" alt="UI Tagged Ressources" src="https://github.com/user-attachments/assets/50e736bb-5aa3-4ece-ad18-6aef4e52f6e1" />
 
 The backend use local AWS credentials for the MVP. The browser should only talk to the NestJS API, never directly to AWS.
 
@@ -40,6 +44,14 @@ Default local settings:
 AWS_REGION=eu-north-1
 AWS_PROFILE=default
 ```
+
+For screenshots or screen sharing, enable frontend-only account id masking:
+
+```text
+VITE_MY_AWS_MASK_ACCOUNT_IDS=true
+```
+
+Rendered 12-digit AWS account ids are shown as `*****`, while API requests still use the real values.
 
 ## Workspace
 

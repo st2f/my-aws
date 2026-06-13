@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/shared-states';
 import { graphqlRequest } from '../graphql/client';
+import { maskAwsAccountIds } from '../privacy/account-id-mask';
 import { useAsyncRouteData } from './use-async-route-data';
 
 type TagKeySummary = {
@@ -89,7 +90,7 @@ async function loadTagGroups(signal: AbortSignal) {
 function TagGroupRow({ group }: { group: TagGroup }) {
   return (
     <div className="grid gap-3 p-4 sm:grid-cols-[10rem_1fr]">
-      <h2 className="text-sm font-semibold text-zinc-950">{group.key}</h2>
+      <h2 className="text-sm font-semibold text-zinc-950">{maskAwsAccountIds(group.key)}</h2>
       {group.values.length === 0 ? (
         <p className="text-sm text-zinc-500">No values</p>
       ) : (
@@ -100,7 +101,7 @@ function TagGroupRow({ group }: { group: TagGroup }) {
               key={`${tagValue.key}:${tagValue.value}`}
               to={`/tags/${encodeURIComponent(tagValue.key)}/${encodeURIComponent(tagValue.value)}`}
             >
-              {tagValue.value}
+              {maskAwsAccountIds(tagValue.value)}
             </Link>
           ))}
         </div>

@@ -53,6 +53,10 @@ export class ConfigService {
     return this.appConfig.aws.profile;
   }
 
+  get serviceLookups() {
+    return this.appConfig.services.lookups;
+  }
+
   private readString(name: string, fallback: string) {
     const value = this.env[name]?.trim();
     return value ? value : fallback;

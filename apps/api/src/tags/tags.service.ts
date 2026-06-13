@@ -1,4 +1,11 @@
 import {
+  ListPoliciesCommand,
+  ListPolicyTagsCommand,
+  ListRolesCommand,
+  ListRoleTagsCommand,
+  type Tag as IamTag,
+} from '@aws-sdk/client-iam';
+import {
   GetResourcesCommand,
   GetTagKeysCommand,
   GetTagValuesCommand,
@@ -7,13 +14,17 @@ import {
 } from '@aws-sdk/client-resource-groups-tagging-api';
 import { Injectable } from '@nestjs/common';
 import { AwsService } from '../aws/aws.service.js';
+import { ConfigService } from '../config/config.service.js';
 import { parseArn } from './arn-parser.js';
 import { toReadableTagsAwsError } from './tags-readable-error.js';
 import type { CloudResource, TagKeySummary, TagValueSummary } from './tags.types.js';
 
 @Injectable()
 export class TagsService {
-  constructor(private readonly awsService: AwsService) {}
+  constructor(
+    private readonly awsService: AwsService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async tagKeys(): Promise<TagKeySummary[]> {
     try {
@@ -26,6 +37,10 @@ export class TagsService {
         keys.push(...(response.TagKeys ?? []));
         paginationToken = response.PaginationToken;
       } while (paginationToken);
+
+      if (this.isServiceLookupEnabled('iam')) {
+        keys.push(...(await this.iamResources()).flatMap((resource) => resource.tags.map((tag) => tag.key)));
+      }
 
       return uniqueSorted(keys).map((key) => ({ key, valueCount: 0 }));
     } catch (error) {
@@ -44,6 +59,15 @@ export class TagsService {
         values.push(...(response.TagValues ?? []));
         paginationToken = response.PaginationToken;
       } while (paginationToken);
+
+      if (this.isServiceLookupEnabled('iam')) {
+        values.push(
+          ...(await this.iamResources())
+            .flatMap((resource) => resource.tags)
+            .filter((tag) => tag.key === key)
+            .map((tag) => tag.value),
+        );
+      }
 
       return uniqueSorted(values).map((value) => ({ key, value, resourceCount: 0 }));
     } catch (error) {
@@ -73,9 +97,19 @@ export class TagsService {
         paginationToken = response.PaginationToken;
       } while (paginationToken);
 
-      return mappings
+      const resources = mappings
         .map((mapping) => this.toCloudResource(mapping))
         .filter((resource): resource is CloudResource => resource !== null);
+
+      if (this.isServiceLookupEnabled('iam')) {
+        resources.push(
+          ...(await this.iamResources()).filter((resource) =>
+            resource.tags.some((tag) => tag.key === key && tag.value === value),
+          ),
+        );
+      }
+
+      return uniqueResources(resources);
     } catch (error) {
       throw toReadableTagsAwsError(error);
     }
@@ -101,12 +135,125 @@ export class TagsService {
       })),
     };
   }
+
+  private isServiceLookupEnabled(service: 'iam') {
+    return this.configService.serviceLookups.includes(service);
+  }
+
+  private async iamResources(): Promise<CloudResource[]> {
+    const roles = await this.iamRoleResources();
+    const policies = await this.iamPolicyResources();
+
+    return [...roles, ...policies];
+  }
+
+  private async iamRoleResources(): Promise<CloudResource[]> {
+    const client = this.awsService.createIamClient();
+    const resources: CloudResource[] = [];
+    let marker: string | undefined;
+
+    do {
+      const response = await client.send(new ListRolesCommand({ Marker: marker }));
+
+      for (const role of response.Roles ?? []) {
+        if (!role.Arn || !role.RoleName) {
+          continue;
+        }
+
+        const tags = await this.iamRoleTags(role.RoleName);
+        resources.push(this.toIamCloudResource(role.Arn, tags));
+      }
+
+      marker = response.IsTruncated ? response.Marker : undefined;
+    } while (marker);
+
+    return resources;
+  }
+
+  private async iamRoleTags(roleName: string) {
+    const client = this.awsService.createIamClient();
+    const tags: IamTag[] = [];
+    let marker: string | undefined;
+
+    do {
+      const response = await client.send(new ListRoleTagsCommand({ RoleName: roleName, Marker: marker }));
+      tags.push(...(response.Tags ?? []));
+      marker = response.IsTruncated ? response.Marker : undefined;
+    } while (marker);
+
+    return tags.filter(hasIamKeyAndValue).map((tag) => ({
+      key: tag.Key,
+      value: tag.Value,
+    }));
+  }
+
+  private async iamPolicyResources(): Promise<CloudResource[]> {
+    const client = this.awsService.createIamClient();
+    const resources: CloudResource[] = [];
+    let marker: string | undefined;
+
+    do {
+      const response = await client.send(new ListPoliciesCommand({ Marker: marker, Scope: 'Local' }));
+
+      for (const policy of response.Policies ?? []) {
+        if (!policy.Arn) {
+          continue;
+        }
+
+        const tags = await this.iamPolicyTags(policy.Arn);
+        resources.push(this.toIamCloudResource(policy.Arn, tags));
+      }
+
+      marker = response.IsTruncated ? response.Marker : undefined;
+    } while (marker);
+
+    return resources;
+  }
+
+  private async iamPolicyTags(policyArn: string) {
+    const client = this.awsService.createIamClient();
+    const tags: IamTag[] = [];
+    let marker: string | undefined;
+
+    do {
+      const response = await client.send(new ListPolicyTagsCommand({ PolicyArn: policyArn, Marker: marker }));
+      tags.push(...(response.Tags ?? []));
+      marker = response.IsTruncated ? response.Marker : undefined;
+    } while (marker);
+
+    return tags.filter(hasIamKeyAndValue).map((tag) => ({
+      key: tag.Key,
+      value: tag.Value,
+    }));
+  }
+
+  private toIamCloudResource(arn: string, tags: CloudResource['tags']): CloudResource {
+    const parsedArn = parseArn(arn);
+
+    return {
+      arn,
+      service: parsedArn.service,
+      type: parsedArn.type,
+      region: parsedArn.region,
+      accountId: parsedArn.accountId,
+      name: parsedArn.name,
+      tags,
+    };
+  }
 }
 
 function uniqueSorted(values: string[]) {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
+function uniqueResources(resources: CloudResource[]) {
+  return [...new Map(resources.map((resource) => [resource.arn, resource])).values()];
+}
+
 function hasKeyAndValue(tag: Tag): tag is Tag & { Key: string; Value: string } {
+  return tag.Key !== undefined && tag.Value !== undefined;
+}
+
+function hasIamKeyAndValue(tag: IamTag): tag is IamTag & { Key: string; Value: string } {
   return tag.Key !== undefined && tag.Value !== undefined;
 }

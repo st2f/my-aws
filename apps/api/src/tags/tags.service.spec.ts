@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AwsService } from '../aws/aws.service.js';
+import { ConfigService } from '../config/config.service.js';
 import { TagsService } from './tags.service.js';
 
 type SentCommand = {
@@ -9,10 +10,21 @@ type SentCommand = {
   input: unknown;
 };
 
-function createService(responses: unknown[]) {
-  const send = vi.fn(async (command: SentCommand) => {
+function createService(resourceGroupsResponses: unknown[], options?: { iamResponses?: unknown[]; enabledLookups?: string }) {
+  const resourceGroupsSend = vi.fn(async (command: SentCommand) => {
     void command;
-    const response = responses.shift();
+    const response = resourceGroupsResponses.shift();
+
+    if (response instanceof Error) {
+      throw response;
+    }
+
+    return response;
+  });
+  const iamResponses = options?.iamResponses ?? [];
+  const iamSend = vi.fn(async (command: SentCommand) => {
+    void command;
+    const response = iamResponses.shift();
 
     if (response instanceof Error) {
       throw response;
@@ -21,12 +33,17 @@ function createService(responses: unknown[]) {
     return response;
   });
   const awsService = {
-    createResourceGroupsTaggingClient: () => ({ send }),
+    createResourceGroupsTaggingClient: () => ({ send: resourceGroupsSend }),
+    createIamClient: () => ({ send: iamSend }),
   } as unknown as AwsService;
+  const configService = new ConfigService({
+    MY_AWS_ENABLED_SERVICE_LOOKUPS: options?.enabledLookups ?? 's3,ecr,ssm',
+  });
 
   return {
-    service: new TagsService(awsService),
-    send,
+    service: new TagsService(awsService, configService),
+    send: resourceGroupsSend,
+    iamSend,
   };
 }
 
@@ -86,6 +103,119 @@ describe('TagsService', () => {
       PaginationToken: undefined,
       TagFilters: [{ Key: 'Project', Values: ['ci-practice'] }],
     });
+  });
+
+  it('adds IAM roles and local policies matching a tag key and value when IAM lookup is enabled', async () => {
+    const { service, iamSend } = createService([{ ResourceTagMappingList: [] }], {
+      enabledLookups: 'iam',
+      iamResponses: [
+        {
+          Roles: [
+            {
+              Arn: 'arn:aws:iam::123456789012:role/ci-practice-deploy',
+              RoleName: 'ci-practice-deploy',
+            },
+          ],
+        },
+        {
+          Tags: [
+            { Key: 'ManagedBy', Value: 'terraform' },
+            { Key: 'Project', Value: 'ci-practice' },
+          ],
+        },
+        {
+          Policies: [
+            {
+              Arn: 'arn:aws:iam::123456789012:policy/ci-practice-readonly',
+              PolicyName: 'ci-practice-readonly',
+            },
+          ],
+        },
+        {
+          Tags: [
+            { Key: 'ManagedBy', Value: 'terraform' },
+            { Key: 'Project', Value: 'ci-practice' },
+          ],
+        },
+      ],
+    });
+
+    await expect(service.resourcesByTag('ManagedBy', 'terraform')).resolves.toEqual([
+      {
+        arn: 'arn:aws:iam::123456789012:role/ci-practice-deploy',
+        service: 'iam',
+        type: 'role',
+        region: null,
+        accountId: '123456789012',
+        name: 'ci-practice-deploy',
+        tags: [
+          { key: 'ManagedBy', value: 'terraform' },
+          { key: 'Project', value: 'ci-practice' },
+        ],
+      },
+      {
+        arn: 'arn:aws:iam::123456789012:policy/ci-practice-readonly',
+        service: 'iam',
+        type: 'policy',
+        region: null,
+        accountId: '123456789012',
+        name: 'ci-practice-readonly',
+        tags: [
+          { key: 'ManagedBy', value: 'terraform' },
+          { key: 'Project', value: 'ci-practice' },
+        ],
+      },
+    ]);
+    expect(iamSend).toHaveBeenCalledTimes(4);
+    expect((iamSend.mock.calls[2]?.[0] as SentCommand).input).toEqual({
+      Marker: undefined,
+      Scope: 'Local',
+    });
+  });
+
+  it('includes IAM-only tag keys when IAM lookup is enabled', async () => {
+    const { service } = createService([{ TagKeys: ['Project'] }], {
+      enabledLookups: 'iam',
+      iamResponses: [
+        {
+          Roles: [
+            {
+              Arn: 'arn:aws:iam::123456789012:role/ci-practice-deploy',
+              RoleName: 'ci-practice-deploy',
+            },
+          ],
+        },
+        { Tags: [{ Key: 'ManagedBy', Value: 'terraform' }] },
+        { Policies: [] },
+      ],
+    });
+
+    await expect(service.tagKeys()).resolves.toEqual([
+      { key: 'ManagedBy', valueCount: 0 },
+      { key: 'Project', valueCount: 0 },
+    ]);
+  });
+
+  it('includes IAM-only tag values when IAM lookup is enabled', async () => {
+    const { service } = createService([{ TagValues: [] }], {
+      enabledLookups: 'iam',
+      iamResponses: [
+        {
+          Roles: [
+            {
+              Arn: 'arn:aws:iam::123456789012:role/ci-practice-deploy',
+              RoleName: 'ci-practice-deploy',
+            },
+          ],
+        },
+        { Tags: [{ Key: 'ManagedBy', Value: 'terraform' }] },
+        { Policies: [] },
+      ],
+    });
+
+    await expect(service.tagValues('ManagedBy')).resolves.toEqual([
+      { key: 'ManagedBy', value: 'terraform', resourceCount: 0 },
+    ]);
   });
 
   it('paginates tag key results', async () => {

@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/shared-states';
 import { graphqlRequest } from '../graphql/client';
+import { maskAwsAccountIds } from '../privacy/account-id-mask';
 import { useAsyncRouteData } from './use-async-route-data';
 
 type Tag = {
@@ -86,17 +87,19 @@ function ResourceRow({ resource }: { resource: CloudResource }) {
     <article className="rounded-lg border border-zinc-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-950">{resource.name ?? resource.arn}</h2>
+          <h2 className="text-sm font-semibold text-zinc-950">{maskAwsAccountIds(resource.name ?? resource.arn)}</h2>
           <p className="mt-1 text-sm text-zinc-600">
             {resource.service}
             {resource.type ? ` / ${resource.type}` : ''}
             {resource.region ? ` / ${resource.region}` : ''}
           </p>
         </div>
-        {resource.accountId ? <span className="font-mono text-xs text-zinc-500">{resource.accountId}</span> : null}
+        {resource.accountId ? (
+          <span className="font-mono text-xs text-zinc-500">{maskAwsAccountIds(resource.accountId)}</span>
+        ) : null}
       </div>
 
-      <p className="mt-3 break-all font-mono text-xs text-zinc-500">{resource.arn}</p>
+      <p className="mt-3 break-all font-mono text-xs text-zinc-500">{maskAwsAccountIds(resource.arn)}</p>
 
       <div className="mt-4 flex flex-wrap gap-2">
         {resource.tags.map((tag) => (
@@ -104,7 +107,7 @@ function ResourceRow({ resource }: { resource: CloudResource }) {
             className="rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs font-medium text-zinc-700"
             key={`${resource.arn}:${tag.key}:${tag.value}`}
           >
-            {tag.key}={tag.value}
+            {maskAwsAccountIds(tag.key)}={maskAwsAccountIds(tag.value)}
           </span>
         ))}
       </div>
