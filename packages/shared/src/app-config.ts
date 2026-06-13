@@ -1,3 +1,5 @@
+// These service lookups are implemented by the app. .env can enable a subset,
+// but adding a value only in .env does not add backend support.
 export type ServiceLookup = 'iam' | 's3' | 'ecr' | 'ssm';
 
 export type AppConfig = {
@@ -13,19 +15,4 @@ export type AppConfig = {
     previewExtensions: string[];
     maxPreviewBytes: number;
   };
-};
-
-export const defaultAppConfig: AppConfig = {
-  aws: {
-    region: 'eu-north-1',
-    profile: 'default',
-  },
-  services: {
-    lookups: ['iam', 's3', 'ecr', 'ssm'],
-  },
-  s3: {
-    maxObjectsPerBucket: 200,
-    previewExtensions: ['.html', '.tf'],
-    maxPreviewBytes: 1_000_000,
-  },
 };

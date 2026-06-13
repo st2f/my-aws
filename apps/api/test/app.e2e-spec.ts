@@ -17,12 +17,12 @@ describe('App', () => {
   });
 
   afterEach(async () => {
-    await app.close();
+    await app?.close();
   });
 
   // initializes Nest + HTTP adapter + Supertest
   it('returns health status', async () => {
-    await request(app.getHttpAdapter().getInstance()).get('/health').expect(200).expect({
+    await request(app.getHttpServer()).get('/health').expect(200).expect({
       status: 'ok',
     });
   });
