@@ -1,13 +1,9 @@
 import type { ReactNode } from 'react';
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
 import { HomeRoute } from './routes/home';
-import {
-  BucketRoute,
-  BucketsRoute,
-  S3ObjectRoute,
-  TaggedResourcesRoute,
-  TagsRoute,
-} from './routes/placeholders';
+import { BucketRoute, BucketsRoute, S3ObjectRoute } from './routes/placeholders';
+import { TaggedResourcesRoute } from './routes/tagged-resources';
+import { TagsRoute } from './routes/tags';
 
 export function App() {
   return (

@@ -2,6 +2,10 @@
 
 Local-first AWS learning dashboard for discovering tagged resources and browsing S3 object previews.
 
+<img width="800" alt="UI Tagged Ressources" src="https://github.com/user-attachments/assets/f52d5204-a272-4909-9b95-3f4956555cb6" />
+
+The backend use local AWS credentials for the MVP. The browser should only talk to the NestJS API, never directly to AWS.
+
 ```txt
 ┌─────────────┐
 │ React Web   │
@@ -36,8 +40,6 @@ Default local settings:
 AWS_REGION=eu-north-1
 AWS_PROFILE=default
 ```
-
-The backend will use local AWS credentials for the MVP. The browser should only talk to the NestJS API, never directly to AWS.
 
 ## Workspace
 

@@ -5,8 +5,18 @@ import { AppShell } from '../App';
 import * as client from '../graphql/client';
 
 function renderRoute(path: string) {
-  vi.spyOn(client, 'graphqlRequest').mockResolvedValue({
-    accountInfo: { accountId: '123456789012', alias: null, region: 'eu-north-1' },
+  vi.spyOn(client, 'graphqlRequest').mockImplementation(async (query) => {
+    if (query.includes('tagKeys')) {
+      return { tagKeys: [] };
+    }
+
+    if (query.includes('resourcesByTag')) {
+      return { resourcesByTag: [] };
+    }
+
+    return {
+      accountInfo: { accountId: '123456789012', alias: null, region: 'eu-north-1' },
+    };
   });
 
   render(
@@ -23,16 +33,16 @@ describe('Route navigation', () => {
     expect(await screen.findByRole('heading', { name: 'my-aws' })).toBeInTheDocument();
   });
 
-  it('renders the tags route at /tags', () => {
+  it('renders the tags route at /tags', async () => {
     renderRoute('/tags');
 
-    expect(screen.getByRole('heading', { name: 'My tags' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'My tags' })).toBeInTheDocument();
   });
 
-  it('renders the tagged resources route at /tags/:key/:value', () => {
+  it('renders the tagged resources route at /tags/:key/:value', async () => {
     renderRoute('/tags/Project/ci-practice');
 
-    expect(screen.getByRole('heading', { name: 'Project=ci-practice' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Project=ci-practice' })).toBeInTheDocument();
   });
 
   it('renders the buckets route at /s3', () => {
