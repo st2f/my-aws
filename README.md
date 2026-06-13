@@ -58,6 +58,7 @@ npm run dev:web
 npm run build
 npm run check:esm
 npm run test --workspace @my-aws/api
+npm run test --workspace @my-aws/web
 npm run test:e2e --workspace @my-aws/api
 npm run typecheck
 npm run lint

@@ -1,159 +1,73 @@
-import { useEffect, useState } from 'react';
-
-type AccountInfo = {
-  accountId: string;
-  alias: string | null;
-  region: string;
-};
-
-type AccountState =
-  | { status: 'loading' }
-  | { status: 'connected'; account: AccountInfo }
-  | { status: 'error'; message: string };
-
-const apiUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+import type { ReactNode } from 'react';
+import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom';
+import { HomeRoute } from './routes/home';
+import {
+  BucketRoute,
+  BucketsRoute,
+  S3ObjectRoute,
+  TaggedResourcesRoute,
+  TagsRoute,
+} from './routes/placeholders';
 
 export function App() {
-  const [accountState, setAccountState] = useState<AccountState>({ status: 'loading' });
-
-  async function loadAccount(signal?: AbortSignal) {
-    setAccountState({ status: 'loading' });
-
-    try {
-      const response = await fetch(
-        `${apiUrl}/account`,
-        signal
-          ? {
-              signal,
-            }
-          : undefined,
-      );
-      const body = (await response.json()) as unknown;
-
-      if (!response.ok) {
-        setAccountState({ status: 'error', message: readErrorMessage(body) });
-        return;
-      }
-
-      setAccountState({ status: 'connected', account: body as AccountInfo });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return;
-      }
-
-      setAccountState({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Unable to reach the API.',
-      });
-    }
-  }
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadAccount(controller.signal);
-
-    return () => controller.abort();
-  }, []);
-
   return (
-    <main className="min-h-screen bg-stone-50 px-6 py-8 text-zinc-950">
-      <div className="mx-auto grid max-w-5xl gap-8">
-        <header>
-          <p className="text-sm font-medium text-zinc-500">Local AWS dashboard</p>
-          <h1 className="mt-2 text-3xl font-semibold">my-aws</h1>
-          <p className="mt-3 max-w-2xl text-base leading-7 text-zinc-600">
-            Local-first AWS learning dashboard for discovering tagged resources and browsing S3
-            object previews.
-          </p>
+    <BrowserRouter>
+      <AppShell />
+    </BrowserRouter>
+  );
+}
+
+export function AppShell() {
+  return (
+    <div className="min-h-screen bg-zinc-50 text-zinc-950">
+      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-zinc-200 bg-white px-4 py-5 lg:block">
+        <div className="px-2">
+          <p className="text-sm font-semibold text-zinc-950">my-aws</p>
+          <p className="mt-1 text-xs text-zinc-500">Local AWS dashboard</p>
+        </div>
+
+        <nav aria-label="Main" className="mt-8 grid gap-1">
+          <NavigationLink to="/tags">My tags</NavigationLink>
+          <NavigationLink to="/s3">My buckets</NavigationLink>
+        </nav>
+      </aside>
+
+      <div className="lg:pl-64">
+        <header className="border-b border-zinc-200 bg-white px-4 py-3 lg:hidden">
+          <p className="text-sm font-semibold">my-aws</p>
+          <nav aria-label="Main" className="mt-3 flex gap-2">
+            <NavigationLink to="/tags">My tags</NavigationLink>
+            <NavigationLink to="/s3">My buckets</NavigationLink>
+          </nav>
         </header>
 
-        <section className="max-w-xl rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-zinc-500">AWS access</p>
-              <h2 className="mt-1 text-lg font-semibold">{accountTitle(accountState)}</h2>
-            </div>
-            <StatusIndicator status={accountState.status} />
-          </div>
-
-          <AccountDetails state={accountState} />
-
-          {accountState.status === 'error' ? (
-            <button
-              className="mt-5 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-700"
-              type="button"
-              onClick={() => void loadAccount()}
-            >
-              Retry
-            </button>
-          ) : null}
-        </section>
+        <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+          <Routes>
+            <Route path="/" element={<HomeRoute />} />
+            <Route path="/tags" element={<TagsRoute />} />
+            <Route path="/tags/:key/:value" element={<TaggedResourcesRoute />} />
+            <Route path="/s3" element={<BucketsRoute />} />
+            <Route path="/s3/:bucket" element={<BucketRoute />} />
+            <Route path="/s3/:bucket/*" element={<S3ObjectRoute />} />
+          </Routes>
+        </main>
       </div>
-    </main>
+    </div>
   );
 }
 
-function AccountDetails({ state }: { state: AccountState }) {
-  if (state.status === 'loading') {
-    return <p className="mt-4 text-sm text-zinc-600">Checking local credentials...</p>;
-  }
-
-  if (state.status === 'error') {
-    return <p className="mt-4 text-sm leading-6 text-red-700">{state.message}</p>;
-  }
-
+function NavigationLink({ to, children }: { to: string; children: ReactNode }) {
   return (
-    <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-3">
-      <div>
-        <dt className="font-medium text-zinc-500">Account</dt>
-        <dd className="mt-1 font-mono text-zinc-950">{state.account.accountId}</dd>
-      </div>
-      <div>
-        <dt className="font-medium text-zinc-500">Alias</dt>
-        <dd className="mt-1 text-zinc-950">{state.account.alias ?? 'None'}</dd>
-      </div>
-      <div>
-        <dt className="font-medium text-zinc-500">Region</dt>
-        <dd className="mt-1 font-mono text-zinc-950">{state.account.region}</dd>
-      </div>
-    </dl>
+    <NavLink
+      className={({ isActive }) =>
+        [
+          'rounded-md px-3 py-2 text-sm font-medium',
+          isActive ? 'bg-zinc-900 text-white' : 'text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950',
+        ].join(' ')
+      }
+      to={to}
+    >
+      {children}
+    </NavLink>
   );
-}
-
-function StatusIndicator({ status }: { status: AccountState['status'] }) {
-  const styles = {
-    loading: 'border-amber-200 bg-amber-50 text-amber-700',
-    connected: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    error: 'border-red-200 bg-red-50 text-red-700',
-  };
-
-  return (
-    <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${styles[status]}`}>
-      {status}
-    </span>
-  );
-}
-
-function accountTitle(state: AccountState) {
-  if (state.status === 'connected') {
-    return state.account.alias ?? state.account.accountId;
-  }
-
-  if (state.status === 'error') {
-    return 'Not authorized';
-  }
-
-  return 'Checking';
-}
-
-function readErrorMessage(body: unknown) {
-  if (typeof body === 'object' && body !== null && 'message' in body) {
-    const message = (body as { message: unknown }).message;
-
-    if (typeof message === 'string') {
-      return message;
-    }
-  }
-
-  return 'Unable to confirm AWS access.';
 }
