@@ -23,6 +23,7 @@ export function AppShell() {
         </div>
 
         <nav aria-label="Main" className="mt-8 grid gap-1">
+          <NavigationLink to="/">Account</NavigationLink>
           <NavigationLink to="/tags">My tags</NavigationLink>
           <NavigationLink to="/s3">My buckets</NavigationLink>
         </nav>
@@ -32,6 +33,7 @@ export function AppShell() {
         <header className="border-b border-zinc-200 bg-white px-4 py-3 lg:hidden">
           <p className="text-sm font-semibold">my-aws</p>
           <nav aria-label="Main" className="mt-3 flex gap-2">
+            <NavigationLink to="/">Account</NavigationLink>
             <NavigationLink to="/tags">My tags</NavigationLink>
             <NavigationLink to="/s3">My buckets</NavigationLink>
           </nav>

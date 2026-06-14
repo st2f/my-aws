@@ -11,6 +11,9 @@ const defaultConfig = {
   services: {
     lookups: serviceLookups,
   },
+  tags: {
+    cacheTtlSeconds: 43_200,
+  },
   s3: {
     maxObjectsPerBucket: 200,
     previewExtensions: ['.html', '.tf'],
@@ -30,6 +33,12 @@ export class ConfigService {
       },
       services: {
         lookups: this.readServiceLookups(),
+      },
+      tags: {
+        cacheTtlSeconds: this.readPositiveInteger(
+          'MY_AWS_TAG_CACHE_TTL_SECONDS',
+          defaultConfig.tags.cacheTtlSeconds,
+        ),
       },
       s3: {
         maxObjectsPerBucket: this.readPositiveInteger(
@@ -55,6 +64,10 @@ export class ConfigService {
 
   get serviceLookups() {
     return this.appConfig.services.lookups;
+  }
+
+  get tagCacheTtlSeconds() {
+    return this.appConfig.tags.cacheTtlSeconds;
   }
 
   private readString(name: string, fallback: string) {

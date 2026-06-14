@@ -29,6 +29,12 @@ describe('App shell', () => {
     expect(screen.getAllByRole('link', { name: 'My tags' })[0]).toHaveAttribute('href', '/tags');
   });
 
+  it('links to Account', () => {
+    renderShell('/tags');
+
+    expect(screen.getAllByRole('link', { name: 'Account' })[0]).toHaveAttribute('href', '/');
+  });
+
   it('links to My buckets', () => {
     renderShell();
 

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import * as client from '../graphql/client';
@@ -41,7 +41,11 @@ describe('TagsRoute', () => {
     renderTagsRoute();
 
     await waitFor(() =>
-      expect(request).toHaveBeenCalledWith(expect.stringContaining('tagKeys'), undefined, expect.any(Object)),
+      expect(request).toHaveBeenCalledWith(
+        expect.stringContaining('tagKeys'),
+        undefined,
+        expect.any(Object),
+      ),
     );
   });
 
@@ -51,7 +55,11 @@ describe('TagsRoute', () => {
     renderTagsRoute();
 
     await screen.findByRole('heading', { name: 'My tags' });
-    expect(request).toHaveBeenCalledWith(expect.stringContaining('tagValues'), { key: 'Project' }, expect.any(Object));
+    expect(request).toHaveBeenCalledWith(
+      expect.stringContaining('tagValues'),
+      { key: 'Project' },
+      expect.any(Object),
+    );
     expect(request).toHaveBeenCalledWith(
       expect.stringContaining('tagValues'),
       { key: 'Environment' },
@@ -79,7 +87,27 @@ describe('TagsRoute', () => {
       'href',
       '/tags/Project/ci-practice',
     );
-    expect(screen.getByRole('link', { name: 'lab' })).toHaveAttribute('href', '/tags/Environment/lab');
+    expect(screen.getByRole('link', { name: 'lab' })).toHaveAttribute(
+      'href',
+      '/tags/Environment/lab',
+    );
+  });
+
+  it('can refresh discovered tags', async () => {
+    const request = mockTagGroups();
+
+    renderTagsRoute();
+
+    await screen.findByRole('heading', { name: 'My tags' });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        expect.stringContaining('tagKeys'),
+        { refresh: true },
+        expect.any(Object),
+      ),
+    );
   });
 
   it('renders loading state', () => {

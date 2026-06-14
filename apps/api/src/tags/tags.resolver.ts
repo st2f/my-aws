@@ -7,17 +7,21 @@ export class TagsResolver {
   constructor(private readonly tagsService: TagsService) {}
 
   @Query(() => [TagKeySummaryType])
-  tagKeys() {
-    return this.tagsService.tagKeys();
+  tagKeys(@Args('refresh', { nullable: true }) refresh?: boolean) {
+    return this.tagsService.tagKeys(refresh);
   }
 
   @Query(() => [TagValueSummaryType])
-  tagValues(@Args('key') key: string) {
-    return this.tagsService.tagValues(key);
+  tagValues(@Args('key') key: string, @Args('refresh', { nullable: true }) refresh?: boolean) {
+    return this.tagsService.tagValues(key, refresh);
   }
 
   @Query(() => [CloudResourceType])
-  resourcesByTag(@Args('key') key: string, @Args('value') value: string) {
-    return this.tagsService.resourcesByTag(key, value);
+  resourcesByTag(
+    @Args('key') key: string,
+    @Args('value') value: string,
+    @Args('refresh', { nullable: true }) refresh?: boolean,
+  ) {
+    return this.tagsService.resourcesByTag(key, value, refresh);
   }
 }

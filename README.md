@@ -2,13 +2,13 @@
 
 Local-first AWS learning dashboard for discovering tagged resources and browsing S3 object previews.
 
-<img width="800" alt="UI Account & List of tags" src="https://github.com/user-attachments/assets/52906afc-0ac8-4507-a44c-efd796757d24" />
+<img width="800" alt="UI Account & List of tags" src="https://github.com/user-attachments/assets/d73bdf52-334e-4f44-8f3c-151702f1cd01" />
 
 ---
 
-<img width="800" alt="UI Tagged Ressources" src="https://github.com/user-attachments/assets/50e736bb-5aa3-4ece-ad18-6aef4e52f6e1" />
+<img width="800" alt="UI Tagged Resources" src="https://github.com/user-attachments/assets/21512883-6a88-4b33-baa6-e3decc3e78f4" />
 
-The backend use local AWS credentials for the MVP. The browser should only talk to the NestJS API, never directly to AWS.
+The backend uses local AWS credentials for the MVP. The browser should only talk to the NestJS API, never directly to AWS.
 
 ```txt
 ┌─────────────┐
@@ -149,6 +149,93 @@ This defines the GraphQL schema types using decorators:
 ```
 
 It answers: “What shape does GraphQL expose to clients?”
+
+## Tag cache
+
+The tag browser uses a backend in-memory cache. There is no database: the cache lives only inside the running NestJS API process, resets when the API restarts, and expires after a configurable TTL. The default TTL is 12 hours.
+
+Configure it in `.env`:
+
+```text
+MY_AWS_TAG_CACHE_TTL_SECONDS=43200
+```
+
+The UI can also bypass the cache with the Refresh buttons.
+
+### Request flow
+
+#### 1. The user opens `/tags`
+
+[apps/web/src/routes/tags.tsx](/apps/web/src/routes/tags.tsx) renders the tags page.
+
+On mount, `useAsyncRouteData(...)` calls `loadTagGroups(...)`.
+
+That sends this GraphQL query first:
+
+```graphql
+tagKeys {
+  key
+  valueCount
+}
+```
+
+Then, for each returned key, it sends:
+
+```graphql
+tagValues(key: "Project") {
+  key
+  value
+  resourceCount
+}
+```
+
+#### 2. GraphQL routes the query to the resolver
+
+[apps/api/src/tags/tags.resolver.ts](/apps/api/src/tags/tags.resolver.ts) receives those GraphQL queries.
+
+The resolver is thin: it does not know about AWS or caching. It just calls the service:
+
+```ts
+tagKeys(refresh) -> tagsService.tagKeys(refresh)
+tagValues(key, refresh) -> tagsService.tagValues(key, refresh)
+resourcesByTag(key, value, refresh) -> tagsService.resourcesByTag(key, value, refresh)
+```
+
+That is how [apps/api/src/tags/tags.service.ts](/apps/api/src/tags/tags.service.ts) gets called.
+
+#### 3. The service checks the cache
+
+Inside `tags.service.ts`, each public method calls the cache gate:
+
+```ts
+this.tagsSnapshot(refresh);
+```
+
+- if `refresh` is false and the cached snapshot has not expired, return cached data
+- if another request is already rebuilding the snapshot, wait for that same in-flight AWS scan
+- otherwise call `buildTagsSnapshot(now)` to scan AWS and store the result with a new expiry time
+
+#### 4. The service derives answers from one snapshot
+
+After the snapshot exists:
+
+- `tagKeys(...)` derives the list of tag keys from cached resources
+- `tagValues(...)` derives values for one key from cached resources
+- `resourcesByTag(...)` filters cached resources by key/value
+
+So `/tags` may make several GraphQL requests, but the backend should only do one AWS scan per TTL window unless Refresh is clicked.
+
+#### 5. Refresh bypasses the cache
+
+The Refresh buttons in [apps/web/src/routes/tags.tsx](/apps/web/src/routes/tags.tsx) and [apps/web/src/routes/tagged-resources.tsx](/apps/web/src/routes/tagged-resources.tsx) tell the backend to rebuild the tag snapshot instead of reusing the cached one.
+
+That gives the user a manual way to pick up AWS tag changes before the TTL expires.
+
+### Current limitations
+
+- no stale cache on error
+- IAM tag requests are intentionally sequential to avoid throttling; limited concurrency could be added later
+- no external cache for multiple API instances
 
 ## Specs
 

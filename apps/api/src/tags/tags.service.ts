@@ -7,8 +7,6 @@ import {
 } from '@aws-sdk/client-iam';
 import {
   GetResourcesCommand,
-  GetTagKeysCommand,
-  GetTagValuesCommand,
   type ResourceTagMapping,
   type Tag,
 } from '@aws-sdk/client-resource-groups-tagging-api';
@@ -19,100 +17,124 @@ import { parseArn } from './arn-parser.js';
 import { toReadableTagsAwsError } from './tags-readable-error.js';
 import type { CloudResource, TagKeySummary, TagValueSummary } from './tags.types.js';
 
+type TagsSnapshot = {
+  expiresAtMs: number;
+  resources: CloudResource[];
+};
+
 @Injectable()
 export class TagsService {
+  private snapshot: TagsSnapshot | null = null;
+  private snapshotPromise: Promise<TagsSnapshot> | null = null;
+
   constructor(
     private readonly awsService: AwsService,
     private readonly configService: ConfigService,
   ) {}
 
-  async tagKeys(): Promise<TagKeySummary[]> {
+  async tagKeys(refresh = false): Promise<TagKeySummary[]> {
     try {
-      const client = this.awsService.createResourceGroupsTaggingClient();
-      const keys: string[] = [];
-      let paginationToken: string | undefined;
+      const { resources } = await this.tagsSnapshot(refresh);
+      const valuesByKey = valuesByTagKey(resources);
 
-      do {
-        const response = await client.send(new GetTagKeysCommand({ PaginationToken: paginationToken }));
-        keys.push(...(response.TagKeys ?? []));
-        paginationToken = response.PaginationToken;
-      } while (paginationToken);
-
-      if (this.isServiceLookupEnabled('iam')) {
-        keys.push(...(await this.iamResources()).flatMap((resource) => resource.tags.map((tag) => tag.key)));
-      }
-
-      return uniqueSorted(keys).map((key) => ({ key, valueCount: 0 }));
+      return uniqueSorted([...valuesByKey.keys()]).map((key) => ({
+        key,
+        valueCount: valuesByKey.get(key)?.size ?? 0,
+      }));
     } catch (error) {
       throw toReadableTagsAwsError(error);
     }
   }
 
-  async tagValues(key: string): Promise<TagValueSummary[]> {
+  async tagValues(key: string, refresh = false): Promise<TagValueSummary[]> {
     try {
-      const client = this.awsService.createResourceGroupsTaggingClient();
-      const values: string[] = [];
-      let paginationToken: string | undefined;
+      const { resources } = await this.tagsSnapshot(refresh);
+      const counts = new Map<string, number>();
 
-      do {
-        const response = await client.send(new GetTagValuesCommand({ Key: key, PaginationToken: paginationToken }));
-        values.push(...(response.TagValues ?? []));
-        paginationToken = response.PaginationToken;
-      } while (paginationToken);
-
-      if (this.isServiceLookupEnabled('iam')) {
-        values.push(
-          ...(await this.iamResources())
-            .flatMap((resource) => resource.tags)
-            .filter((tag) => tag.key === key)
-            .map((tag) => tag.value),
+      for (const resource of resources) {
+        const valuesOnResource = uniqueSorted(
+          resource.tags.filter((tag) => tag.key === key).map((tag) => tag.value),
         );
+
+        for (const value of valuesOnResource) {
+          counts.set(value, (counts.get(value) ?? 0) + 1);
+        }
       }
 
-      return uniqueSorted(values).map((value) => ({ key, value, resourceCount: 0 }));
+      return uniqueSorted([...counts.keys()]).map((value) => ({
+        key,
+        value,
+        resourceCount: counts.get(value) ?? 0,
+      }));
     } catch (error) {
       throw toReadableTagsAwsError(error);
     }
   }
 
-  async resourcesByTag(key: string, value: string): Promise<CloudResource[]> {
+  async resourcesByTag(key: string, value: string, refresh = false): Promise<CloudResource[]> {
     try {
-      const client = this.awsService.createResourceGroupsTaggingClient();
-      const mappings: ResourceTagMapping[] = [];
-      let paginationToken: string | undefined;
+      const { resources } = await this.tagsSnapshot(refresh);
 
-      do {
-        const response = await client.send(
-          new GetResourcesCommand({
-            PaginationToken: paginationToken,
-            TagFilters: [
-              {
-                Key: key,
-                Values: [value],
-              },
-            ],
-          }),
-        );
-        mappings.push(...(response.ResourceTagMappingList ?? []));
-        paginationToken = response.PaginationToken;
-      } while (paginationToken);
-
-      const resources = mappings
-        .map((mapping) => this.toCloudResource(mapping))
-        .filter((resource): resource is CloudResource => resource !== null);
-
-      if (this.isServiceLookupEnabled('iam')) {
-        resources.push(
-          ...(await this.iamResources()).filter((resource) =>
-            resource.tags.some((tag) => tag.key === key && tag.value === value),
-          ),
-        );
-      }
-
-      return uniqueResources(resources);
+      return resources.filter((resource) =>
+        resource.tags.some((tag) => tag.key === key && tag.value === value),
+      );
     } catch (error) {
       throw toReadableTagsAwsError(error);
     }
+  }
+
+  private async tagsSnapshot(refresh: boolean): Promise<TagsSnapshot> {
+    const now = Date.now();
+
+    if (!refresh && this.snapshot && this.snapshot.expiresAtMs > now) {
+      return this.snapshot;
+    }
+
+    if (!refresh && this.snapshotPromise) {
+      return this.snapshotPromise;
+    }
+
+    this.snapshotPromise = this.buildTagsSnapshot(now);
+
+    try {
+      this.snapshot = await this.snapshotPromise;
+      return this.snapshot;
+    } finally {
+      this.snapshotPromise = null;
+    }
+  }
+
+  private async buildTagsSnapshot(now: number): Promise<TagsSnapshot> {
+    const resources = await this.allTaggedResources();
+
+    if (this.isServiceLookupEnabled('iam')) {
+      resources.push(...(await this.iamResources()));
+    }
+
+    return {
+      expiresAtMs: now + this.configService.tagCacheTtlSeconds * 1000,
+      resources: uniqueResources(resources),
+    };
+  }
+
+  private async allTaggedResources(): Promise<CloudResource[]> {
+    const client = this.awsService.createResourceGroupsTaggingClient();
+    const mappings: ResourceTagMapping[] = [];
+    let paginationToken: string | undefined;
+
+    do {
+      const response = await client.send(
+        new GetResourcesCommand({
+          PaginationToken: paginationToken,
+        }),
+      );
+      mappings.push(...(response.ResourceTagMappingList ?? []));
+      paginationToken = response.PaginationToken;
+    } while (paginationToken);
+
+    return mappings
+      .map((mapping) => this.toCloudResource(mapping))
+      .filter((resource): resource is CloudResource => resource !== null);
   }
 
   private toCloudResource(mapping: ResourceTagMapping): CloudResource | null {
@@ -176,7 +198,9 @@ export class TagsService {
     let marker: string | undefined;
 
     do {
-      const response = await client.send(new ListRoleTagsCommand({ RoleName: roleName, Marker: marker }));
+      const response = await client.send(
+        new ListRoleTagsCommand({ RoleName: roleName, Marker: marker }),
+      );
       tags.push(...(response.Tags ?? []));
       marker = response.IsTruncated ? response.Marker : undefined;
     } while (marker);
@@ -193,7 +217,9 @@ export class TagsService {
     let marker: string | undefined;
 
     do {
-      const response = await client.send(new ListPoliciesCommand({ Marker: marker, Scope: 'Local' }));
+      const response = await client.send(
+        new ListPoliciesCommand({ Marker: marker, Scope: 'Local' }),
+      );
 
       for (const policy of response.Policies ?? []) {
         if (!policy.Arn) {
@@ -216,7 +242,9 @@ export class TagsService {
     let marker: string | undefined;
 
     do {
-      const response = await client.send(new ListPolicyTagsCommand({ PolicyArn: policyArn, Marker: marker }));
+      const response = await client.send(
+        new ListPolicyTagsCommand({ PolicyArn: policyArn, Marker: marker }),
+      );
       tags.push(...(response.Tags ?? []));
       marker = response.IsTruncated ? response.Marker : undefined;
     } while (marker);
@@ -248,6 +276,18 @@ function uniqueSorted(values: string[]) {
 
 function uniqueResources(resources: CloudResource[]) {
   return [...new Map(resources.map((resource) => [resource.arn, resource])).values()];
+}
+
+function valuesByTagKey(resources: CloudResource[]) {
+  const values = new Map<string, Set<string>>();
+
+  for (const resource of resources) {
+    for (const tag of resource.tags) {
+      values.set(tag.key, (values.get(tag.key) ?? new Set()).add(tag.value));
+    }
+  }
+
+  return values;
 }
 
 function hasKeyAndValue(tag: Tag): tag is Tag & { Key: string; Value: string } {

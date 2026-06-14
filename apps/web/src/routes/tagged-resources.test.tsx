@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import * as client from '../graphql/client';
@@ -51,7 +51,7 @@ describe('TaggedResourcesRoute', () => {
     await waitFor(() =>
       expect(request).toHaveBeenCalledWith(
         expect.stringContaining('resourcesByTag'),
-        { key: 'Project', value: 'ci-practice' },
+        { key: 'Project', value: 'ci-practice', refresh: false },
         expect.any(Object),
       ),
     );
@@ -63,7 +63,9 @@ describe('TaggedResourcesRoute', () => {
     renderTaggedResourcesRoute();
 
     expect(await screen.findByRole('heading', { name: 'Project=ci-practice' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'ci-practice-reports-535337619181' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'ci-practice-reports-535337619181' }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'ecr-repo-practice' })).toBeInTheDocument();
     expect(screen.getByText('ecr / repository / eu-north-1')).toBeInTheDocument();
     expect(screen.getByText('arn:aws:s3:::ci-practice-reports-535337619181')).toBeInTheDocument();
@@ -85,14 +87,46 @@ describe('TaggedResourcesRoute', () => {
 
     renderTaggedResourcesRoute();
 
-    expect(await screen.findByRole('heading', { name: 'ci-practice-reports-*****' })).toBeInTheDocument();
-    expect(screen.getByText('arn:aws:ecr:eu-north-1:*****:repository/ecr-repo-practice')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'ci-practice-reports-*****' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('arn:aws:ecr:eu-north-1:*****:repository/ecr-repo-practice'),
+    ).toBeInTheDocument();
     expect(screen.getByText('*****')).toBeInTheDocument();
     expect(screen.queryByText('535337619181')).not.toBeInTheDocument();
     expect(request).toHaveBeenCalledWith(
       expect.stringContaining('resourcesByTag'),
-      { key: 'Project', value: 'ci-practice' },
+      { key: 'Project', value: 'ci-practice', refresh: false },
       expect.any(Object),
+    );
+  });
+
+  // it('links back to the tags page', async () => {
+  //   mockTaggedResources();
+
+  //   renderTaggedResourcesRoute();
+
+  //   expect(await screen.findByRole('link', { name: 'Back to tags' })).toHaveAttribute(
+  //     'href',
+  //     '/tags',
+  //   );
+  // });
+
+  it('can refresh tagged resources', async () => {
+    const request = mockTaggedResources();
+
+    renderTaggedResourcesRoute();
+
+    await screen.findByRole('heading', { name: 'Project=ci-practice' });
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        expect.stringContaining('resourcesByTag'),
+        { key: 'Project', value: 'ci-practice', refresh: true },
+        expect.any(Object),
+      ),
     );
   });
 

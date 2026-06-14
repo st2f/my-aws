@@ -10,7 +10,10 @@ type SentCommand = {
   input: unknown;
 };
 
-function createService(resourceGroupsResponses: unknown[], options?: { iamResponses?: unknown[]; enabledLookups?: string }) {
+function createService(
+  resourceGroupsResponses: unknown[],
+  options?: { iamResponses?: unknown[]; enabledLookups?: string; cacheTtlSeconds?: string },
+) {
   const resourceGroupsSend = vi.fn(async (command: SentCommand) => {
     void command;
     const response = resourceGroupsResponses.shift();
@@ -38,6 +41,7 @@ function createService(resourceGroupsResponses: unknown[], options?: { iamRespon
   } as unknown as AwsService;
   const configService = new ConfigService({
     MY_AWS_ENABLED_SERVICE_LOOKUPS: options?.enabledLookups ?? 's3,ecr,ssm',
+    MY_AWS_TAG_CACHE_TTL_SECONDS: options?.cacheTtlSeconds,
   });
 
   return {
@@ -49,23 +53,51 @@ function createService(resourceGroupsResponses: unknown[], options?: { iamRespon
 
 describe('TagsService', () => {
   it('returns tag keys from Resource Groups Tagging API', async () => {
-    const { service } = createService([{ TagKeys: ['Environment', 'Project'] }]);
+    const { service } = createService([
+      {
+        ResourceTagMappingList: [
+          {
+            ResourceARN: 'arn:aws:s3:::reports',
+            Tags: [
+              { Key: 'Environment', Value: 'lab' },
+              { Key: 'Project', Value: 'ci-practice' },
+            ],
+          },
+          {
+            ResourceARN: 'arn:aws:ssm:eu-north-1:123456789012:parameter/example',
+            Tags: [{ Key: 'Project', Value: 'demo' }],
+          },
+        ],
+      },
+    ]);
 
     await expect(service.tagKeys()).resolves.toEqual([
-      { key: 'Environment', valueCount: 0 },
-      { key: 'Project', valueCount: 0 },
+      { key: 'Environment', valueCount: 1 },
+      { key: 'Project', valueCount: 2 },
     ]);
   });
 
   it('returns tag values for a key', async () => {
-    const { service, send } = createService([{ TagValues: ['ci-practice', 'lab'] }]);
+    const { service, send } = createService([
+      {
+        ResourceTagMappingList: [
+          {
+            ResourceARN: 'arn:aws:s3:::reports',
+            Tags: [{ Key: 'Project', Value: 'ci-practice' }],
+          },
+          {
+            ResourceARN: 'arn:aws:ssm:eu-north-1:123456789012:parameter/example',
+            Tags: [{ Key: 'Project', Value: 'lab' }],
+          },
+        ],
+      },
+    ]);
 
     await expect(service.tagValues('Project')).resolves.toEqual([
-      { key: 'Project', value: 'ci-practice', resourceCount: 0 },
-      { key: 'Project', value: 'lab', resourceCount: 0 },
+      { key: 'Project', value: 'ci-practice', resourceCount: 1 },
+      { key: 'Project', value: 'lab', resourceCount: 1 },
     ]);
     expect((send.mock.calls[0]?.[0] as SentCommand).input).toEqual({
-      Key: 'Project',
       PaginationToken: undefined,
     });
   });
@@ -101,7 +133,6 @@ describe('TagsService', () => {
     ]);
     expect((send.mock.calls[0]?.[0] as SentCommand).input).toEqual({
       PaginationToken: undefined,
-      TagFilters: [{ Key: 'Project', Values: ['ci-practice'] }],
     });
   });
 
@@ -174,30 +205,42 @@ describe('TagsService', () => {
   });
 
   it('includes IAM-only tag keys when IAM lookup is enabled', async () => {
-    const { service } = createService([{ TagKeys: ['Project'] }], {
-      enabledLookups: 'iam',
-      iamResponses: [
+    const { service } = createService(
+      [
         {
-          Roles: [
+          ResourceTagMappingList: [
             {
-              Arn: 'arn:aws:iam::123456789012:role/ci-practice-deploy',
-              RoleName: 'ci-practice-deploy',
+              ResourceARN: 'arn:aws:s3:::reports',
+              Tags: [{ Key: 'Project', Value: 'ci-practice' }],
             },
           ],
         },
-        { Tags: [{ Key: 'ManagedBy', Value: 'terraform' }] },
-        { Policies: [] },
       ],
-    });
+      {
+        enabledLookups: 'iam',
+        iamResponses: [
+          {
+            Roles: [
+              {
+                Arn: 'arn:aws:iam::123456789012:role/ci-practice-deploy',
+                RoleName: 'ci-practice-deploy',
+              },
+            ],
+          },
+          { Tags: [{ Key: 'ManagedBy', Value: 'terraform' }] },
+          { Policies: [] },
+        ],
+      },
+    );
 
     await expect(service.tagKeys()).resolves.toEqual([
-      { key: 'ManagedBy', valueCount: 0 },
-      { key: 'Project', valueCount: 0 },
+      { key: 'ManagedBy', valueCount: 1 },
+      { key: 'Project', valueCount: 1 },
     ]);
   });
 
   it('includes IAM-only tag values when IAM lookup is enabled', async () => {
-    const { service } = createService([{ TagValues: [] }], {
+    const { service } = createService([{ ResourceTagMappingList: [] }], {
       enabledLookups: 'iam',
       iamResponses: [
         {
@@ -214,34 +257,63 @@ describe('TagsService', () => {
     });
 
     await expect(service.tagValues('ManagedBy')).resolves.toEqual([
-      { key: 'ManagedBy', value: 'terraform', resourceCount: 0 },
+      { key: 'ManagedBy', value: 'terraform', resourceCount: 1 },
     ]);
   });
 
-  it('paginates tag key results', async () => {
+  it('paginates tag discovery results for tag keys', async () => {
     const { service, send } = createService([
-      { TagKeys: ['Project'], PaginationToken: 'next' },
-      { TagKeys: ['Owner'] },
+      {
+        PaginationToken: 'next',
+        ResourceTagMappingList: [
+          {
+            ResourceARN: 'arn:aws:s3:::reports',
+            Tags: [{ Key: 'Project', Value: 'ci-practice' }],
+          },
+        ],
+      },
+      {
+        ResourceTagMappingList: [
+          {
+            ResourceARN: 'arn:aws:ssm:eu-north-1:123456789012:parameter/example',
+            Tags: [{ Key: 'Owner', Value: 'stef' }],
+          },
+        ],
+      },
     ]);
 
     await expect(service.tagKeys()).resolves.toEqual([
-      { key: 'Owner', valueCount: 0 },
-      { key: 'Project', valueCount: 0 },
+      { key: 'Owner', valueCount: 1 },
+      { key: 'Project', valueCount: 1 },
     ]);
     expect(send).toHaveBeenCalledTimes(2);
     expect((send.mock.calls[1]?.[0] as SentCommand).input).toEqual({ PaginationToken: 'next' });
   });
 
-  it('paginates tag value results', async () => {
+  it('paginates tag discovery results for tag values', async () => {
     const { service, send } = createService([
-      { TagValues: ['ci-practice'], PaginationToken: 'next' },
-      { TagValues: ['lab'] },
+      {
+        PaginationToken: 'next',
+        ResourceTagMappingList: [
+          {
+            ResourceARN: 'arn:aws:s3:::reports',
+            Tags: [{ Key: 'Project', Value: 'ci-practice' }],
+          },
+        ],
+      },
+      {
+        ResourceTagMappingList: [
+          {
+            ResourceARN: 'arn:aws:ssm:eu-north-1:123456789012:parameter/example',
+            Tags: [{ Key: 'Project', Value: 'lab' }],
+          },
+        ],
+      },
     ]);
 
     await expect(service.tagValues('Project')).resolves.toHaveLength(2);
     expect(send).toHaveBeenCalledTimes(2);
     expect((send.mock.calls[1]?.[0] as SentCommand).input).toEqual({
-      Key: 'Project',
       PaginationToken: 'next',
     });
   });
@@ -250,10 +322,20 @@ describe('TagsService', () => {
     const { service, send } = createService([
       {
         PaginationToken: 'next',
-        ResourceTagMappingList: [{ ResourceARN: 'arn:aws:s3:::bucket-one', Tags: [] }],
+        ResourceTagMappingList: [
+          {
+            ResourceARN: 'arn:aws:s3:::bucket-one',
+            Tags: [{ Key: 'Project', Value: 'ci-practice' }],
+          },
+        ],
       },
       {
-        ResourceTagMappingList: [{ ResourceARN: 'arn:aws:s3:::bucket-two', Tags: [] }],
+        ResourceTagMappingList: [
+          {
+            ResourceARN: 'arn:aws:s3:::bucket-two',
+            Tags: [{ Key: 'Project', Value: 'ci-practice' }],
+          },
+        ],
       },
     ]);
 
@@ -261,8 +343,99 @@ describe('TagsService', () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect((send.mock.calls[1]?.[0] as SentCommand).input).toEqual({
       PaginationToken: 'next',
-      TagFilters: [{ Key: 'Project', Values: ['ci-practice'] }],
     });
+  });
+
+  it('reuses cached tag discovery before the ttl expires', async () => {
+    const { service, send } = createService([
+      {
+        ResourceTagMappingList: [
+          {
+            ResourceARN: 'arn:aws:s3:::reports',
+            Tags: [{ Key: 'Project', Value: 'ci-practice' }],
+          },
+        ],
+      },
+    ]);
+
+    await service.tagKeys();
+    await service.tagValues('Project');
+    await service.resourcesByTag('Project', 'ci-practice');
+
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes cached tag discovery after the ttl expires', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-14T10:00:00Z'));
+
+    try {
+      const { service, send } = createService(
+        [
+          {
+            ResourceTagMappingList: [
+              {
+                ResourceARN: 'arn:aws:s3:::reports',
+                Tags: [{ Key: 'Project', Value: 'ci-practice' }],
+              },
+            ],
+          },
+          {
+            ResourceTagMappingList: [
+              {
+                ResourceARN: 'arn:aws:s3:::reports',
+                Tags: [{ Key: 'Project', Value: 'demo' }],
+              },
+            ],
+          },
+        ],
+        { cacheTtlSeconds: '60' },
+      );
+
+      await expect(service.tagValues('Project')).resolves.toEqual([
+        { key: 'Project', value: 'ci-practice', resourceCount: 1 },
+      ]);
+
+      vi.setSystemTime(new Date('2026-06-14T10:01:01Z'));
+
+      await expect(service.tagValues('Project')).resolves.toEqual([
+        { key: 'Project', value: 'demo', resourceCount: 1 },
+      ]);
+
+      expect(send).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refreshes cached tag discovery when requested', async () => {
+    const { service, send } = createService([
+      {
+        ResourceTagMappingList: [
+          {
+            ResourceARN: 'arn:aws:s3:::reports',
+            Tags: [{ Key: 'Project', Value: 'ci-practice' }],
+          },
+        ],
+      },
+      {
+        ResourceTagMappingList: [
+          {
+            ResourceARN: 'arn:aws:s3:::reports',
+            Tags: [{ Key: 'Project', Value: 'demo' }],
+          },
+        ],
+      },
+    ]);
+
+    await expect(service.tagValues('Project')).resolves.toEqual([
+      { key: 'Project', value: 'ci-practice', resourceCount: 1 },
+    ]);
+    await expect(service.tagValues('Project', true)).resolves.toEqual([
+      { key: 'Project', value: 'demo', resourceCount: 1 },
+    ]);
+
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   it('maps AWS access denied errors to readable errors', async () => {

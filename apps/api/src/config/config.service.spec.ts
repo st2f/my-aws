@@ -24,6 +24,15 @@ describe('ConfigService', () => {
     expect(service.appConfig.services.lookups).toEqual(['iam', 's3', 'ssm']);
   });
 
+  it('parses tag cache ttl', () => {
+    const service = new ConfigService({
+      MY_AWS_TAG_CACHE_TTL_SECONDS: '60',
+    });
+
+    expect(service.appConfig.tags.cacheTtlSeconds).toBe(60);
+    expect(service.tagCacheTtlSeconds).toBe(60);
+  });
+
   it('parses S3 limits and preview extensions', () => {
     const service = new ConfigService({
       MY_AWS_S3_MAX_OBJECTS_PER_BUCKET: '50',
@@ -47,6 +56,9 @@ describe('ConfigService', () => {
       },
       services: {
         lookups: ['iam', 's3', 'ecr', 'ssm'],
+      },
+      tags: {
+        cacheTtlSeconds: 43_200,
       },
       s3: {
         maxObjectsPerBucket: 200,

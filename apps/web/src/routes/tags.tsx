@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ErrorState, LoadingState } from '../components/shared-states';
 import { graphqlRequest } from '../graphql/client';
@@ -35,8 +36,15 @@ const tagKeysQuery = `{
   }
 }`;
 
-const tagValuesQuery = `query TagValues($key: String!) {
-  tagValues(key: $key) {
+const refreshTagKeysQuery = `query TagKeys($refresh: Boolean) {
+  tagKeys(refresh: $refresh) {
+    key
+    valueCount
+  }
+}`;
+
+const tagValuesQuery = `query TagValues($key: String!, $refresh: Boolean) {
+  tagValues(key: $key, refresh: $refresh) {
     key
     value
     resourceCount
@@ -44,7 +52,11 @@ const tagValuesQuery = `query TagValues($key: String!) {
 }`;
 
 export function TagsRoute() {
-  const state = useAsyncRouteData(loadTagGroups);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const state = useAsyncRouteData(
+    (signal) => loadTagGroups(signal, refreshVersion > 0),
+    [refreshVersion],
+  );
 
   if (state.status === 'loading') {
     return <LoadingState label="Loading tags" />;
@@ -56,9 +68,18 @@ export function TagsRoute() {
 
   return (
     <section className="grid gap-5">
-      <div>
-        <p className="text-sm font-medium text-zinc-500">Resource tags</p>
-        <h1 className="mt-2 text-2xl font-semibold text-zinc-950">My tags</h1>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-zinc-500">Resource tags</p>
+          <h1 className="mt-2 text-2xl font-semibold text-zinc-950">My tags</h1>
+        </div>
+        <button
+          className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+          onClick={() => setRefreshVersion((version) => version + 1)}
+          type="button"
+        >
+          Refresh
+        </button>
       </div>
 
       {state.data.length === 0 ? (
@@ -76,12 +97,20 @@ export function TagsRoute() {
   );
 }
 
-async function loadTagGroups(signal: AbortSignal) {
-  const { tagKeys } = await graphqlRequest<TagKeysData>(tagKeysQuery, undefined, { signal });
+async function loadTagGroups(signal: AbortSignal, refresh: boolean) {
+  const { tagKeys } = await graphqlRequest<TagKeysData>(
+    refresh ? refreshTagKeysQuery : tagKeysQuery,
+    refresh ? { refresh } : undefined,
+    { signal },
+  );
 
   return Promise.all(
     tagKeys.map(async ({ key }) => {
-      const { tagValues } = await graphqlRequest<TagValuesData>(tagValuesQuery, { key }, { signal });
+      const { tagValues } = await graphqlRequest<TagValuesData>(
+        tagValuesQuery,
+        { key },
+        { signal },
+      );
       return { key, values: tagValues };
     }),
   );

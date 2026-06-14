@@ -10,6 +10,9 @@ export type AppConfig = {
   services: {
     lookups: ServiceLookup[];
   };
+  tags: {
+    cacheTtlSeconds: number;
+  };
   s3: {
     maxObjectsPerBucket: number;
     previewExtensions: string[];

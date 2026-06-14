@@ -13,17 +13,19 @@ describe('TagsResolver', () => {
     const resolver = createResolver({ tagKeys });
 
     await expect(resolver.tagKeys()).resolves.toEqual([{ key: 'Project', valueCount: 0 }]);
-    expect(tagKeys).toHaveBeenCalledOnce();
+    expect(tagKeys).toHaveBeenCalledWith(undefined);
   });
 
   it('returns tag values from TagsService', async () => {
-    const tagValues = vi.fn(async () => [{ key: 'Project', value: 'ci-practice', resourceCount: 0 }]);
+    const tagValues = vi.fn(async () => [
+      { key: 'Project', value: 'ci-practice', resourceCount: 0 },
+    ]);
     const resolver = createResolver({ tagValues });
 
     await expect(resolver.tagValues('Project')).resolves.toEqual([
       { key: 'Project', value: 'ci-practice', resourceCount: 0 },
     ]);
-    expect(tagValues).toHaveBeenCalledWith('Project');
+    expect(tagValues).toHaveBeenCalledWith('Project', undefined);
   });
 
   it('returns resources by tag from TagsService', async () => {
@@ -41,7 +43,15 @@ describe('TagsResolver', () => {
     const resolver = createResolver({ resourcesByTag });
 
     await expect(resolver.resourcesByTag('Project', 'ci-practice')).resolves.toHaveLength(1);
-    expect(resourcesByTag).toHaveBeenCalledWith('Project', 'ci-practice');
+    expect(resourcesByTag).toHaveBeenCalledWith('Project', 'ci-practice', undefined);
+  });
+
+  it('passes refresh requests to TagsService', async () => {
+    const resourcesByTag = vi.fn(async () => []);
+    const resolver = createResolver({ resourcesByTag });
+
+    await expect(resolver.resourcesByTag('Project', 'ci-practice', true)).resolves.toEqual([]);
+    expect(resourcesByTag).toHaveBeenCalledWith('Project', 'ci-practice', true);
   });
 
   it('returns clear errors from TagsService', async () => {
